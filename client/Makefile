@@ -9,7 +9,7 @@
 CC?=gcc
 DEBUG_CFLAGS?=-DTESTMEMORY -Werror -O0
 RELEASE_CFLAGS?=-Os
-CFLAGS?=--std=c89 -I. -Wall -D_DEFAULT_SOURCE -fstack-protector-all -Wformat -Wformat-security -g
+CFLAGS?=--std=c89 -I. -static -Wall -D_DEFAULT_SOURCE -fstack-protector-all -Wformat -Wformat-security -g
 LIBS=-pie -Wl,-z,relro,-z,now
 
 OBJS=controller/packet.o \
@@ -36,7 +36,7 @@ OBJS=controller/packet.o \
 		 libs/udp.o \
 		 tunnel_drivers/driver_dns.o \
 
-DNSCAT_DNS_OBJS=${OBJS} dnscat.o
+DNSCAT_DNS_OBJS=${OBJS} dnscat.o -lutil
 
 all: dnscat
 	@echo "*** Build complete! Run 'make debug' to build a debug version!"

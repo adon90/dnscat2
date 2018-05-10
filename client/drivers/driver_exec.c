@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pty.h>
+#include <termios.h>
 
 #ifndef WIN32
 #include <unistd.h>
@@ -156,43 +158,61 @@ driver_exec_t *driver_exec_create(select_group_t *group, char *process)
     exit(1);
   }
 
-  driver->pid = fork();
+/*driver->pid = fork();*/ 
+   int terminalfd;
+   driver->pid = forkpty(&terminalfd, NULL, NULL, NULL); 
+   if(driver->pid == -1)
+   {  
+LOG_FATAL("exec: couldn't create process (%d)", errno);    
+exit(1);
+   }  
 
-  if(driver->pid == -1)
-  {
-    LOG_FATAL("exec: couldn't create process (%d)", errno);
-    exit(1);
-  }
+   /* If we're in the child process... */    
+   if(driver->pid == 0)
+   {  
+/* Copy the pipes.
+if(dup2(driver->pipe_stdin[PIPE_READ], STDIN_FILENO) == -1)
+  nbdie("exec: couldn't duplicate STDIN handle");   
 
-  /* If we're in the child process... */
-  if(driver->pid == 0)
-  {
-    /* Copy the pipes. */
-    if(dup2(driver->pipe_stdin[PIPE_READ], STDIN_FILENO) == -1)
-      nbdie("exec: couldn't duplicate STDIN handle");
+if(dup2(driver->pipe_stdout[PIPE_WRITE], STDOUT_FILENO) == -1)  
+  nbdie("exec: couldn't duplicate STDOUT handle");  
 
-    if(dup2(driver->pipe_stdout[PIPE_WRITE], STDOUT_FILENO) == -1)
-      nbdie("exec: couldn't duplicate STDOUT handle");
+if(dup2(driver->pipe_stdout[PIPE_WRITE], STDERR_FILENO) == -1)  
+  nbdie("exec: couldn't duplicate STDERR handle");  
 
-    if(dup2(driver->pipe_stdout[PIPE_WRITE], STDERR_FILENO) == -1)
-      nbdie("exec: couldn't duplicate STDERR handle");
+ Execute the new process.
+  */  
+execlp("/bin/sh", "sh", "-c", driver->process, (char*) NULL);   
 
-    /* Execute the new process. */
-    execlp("/bin/sh", "sh", "-c", driver->process, (char*) NULL);
-
-    /* If execlp returns, bad stuff happened. */
-    LOG_FATAL("exec: execlp failed (%d)", errno);
-    exit(1);
-  }
+/* If execlp returns, bad stuff happened. */   
+LOG_FATAL("exec: execlp failed (%d)", errno);  
+exit(1);
+   }  
 
   LOG_WARNING("Started: %s (pid: %d)", driver->process, driver->pid);
   close(driver->pipe_stdin[PIPE_READ]);
   close(driver->pipe_stdout[PIPE_WRITE]);
 
-  /* Add the sub-process's stdout as a socket. */
-  select_group_add_socket(driver->group, driver->pipe_stdout[PIPE_READ], SOCKET_TYPE_STREAM, driver);
-  select_set_recv(driver->group,         driver->pipe_stdout[PIPE_READ], exec_callback);
-  select_set_closed(driver->group,       driver->pipe_stdout[PIPE_READ], exec_closed_callback);
+/* Add the sub-process's stdout as a socket. */      
+   /*      
+   select_group_add_socket(driver->group, driver->pipe_stdout[PIPE_READ], SOCKET_TYPE_STREAM, driver);        
+   select_set_recv(driver->group,driver->pipe_stdout[PIPE_READ], exec_callback);   
+   select_set_closed(driver->group,       driver->pipe_stdout[PIPE_READ], exec_closed_callback);     
+  */       
+  
+   struct termios terminal;  
+   tcgetattr(terminalfd, &terminal);  
+   terminal.c_lflag &= ~ECHO; 
+   terminal.c_lflag &= ~ICANON;  
+   tcsetattr(terminalfd, TCSANOW, &terminal); 
+  
+   driver->pipe_stdout[PIPE_READ] =  terminalfd;  
+   driver->pipe_stdin[PIPE_WRITE] = terminalfd;  
+  
+   select_group_add_socket(driver->group, driver->pipe_stdout[PIPE_READ], SOCKET_TYPE_STREAM, driver);        
+   select_set_recv(driver->group,driver->pipe_stdout[PIPE_READ], exec_callback);   
+   select_set_closed(driver->group,       driver->pipe_stdout[PIPE_READ], exec_closed_callback); 
+
 #endif
 
   return driver;
